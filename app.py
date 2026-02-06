@@ -105,7 +105,7 @@ if st.session_state.docs_processed:
             answer = generate_answer(
                 query=query,
                 context=context,
-                max_len=300
+                max_len=600
             )
 
             st.session_state.messages.append(
