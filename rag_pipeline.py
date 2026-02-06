@@ -90,7 +90,7 @@ def retrieve_context(query, model, index, chunks, top_k=5, score_threshold=0.25)
 
 
 
-def generate_answer(query, context, max_len=600):
+def generate_answer(query, context, max_len=300):
     if "generator" not in st.session_state:
         raise RuntimeError("Text generator not initialized")
 
