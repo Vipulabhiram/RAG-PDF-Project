@@ -7,7 +7,10 @@ import streamlit as st
 from sentence_transformers import SentenceTransformer
 
 
+
+
 def extract_text_from_pdf(pdf_source):
+
     if hasattr(pdf_source, "read"):
         pdf_bytes = pdf_source.read()
         pdf_source.seek(0)
@@ -18,40 +21,62 @@ def extract_text_from_pdf(pdf_source):
         doc = fitz.open(pdf_source)
 
     text = ""
+
     for page in doc:
         text += page.get_text("text") + "\n"
+
     doc.close()
+
     return text
 
 
 
+
 def clean_text(text):
+
     return re.sub(r"\s+", " ", text).strip()
 
 
 
-def chunk_text(text, chunk_size=300, overlap=50):
+
+def chunk_text(text, chunk_size=700, overlap=120):
+
     words = text.split()
+
     chunks = []
+
     start = 0
 
     while start < len(words):
+
         end = start + chunk_size
+
         chunks.append(" ".join(words[start:end]))
+
         start = end - overlap
 
     return chunks
 
 
 
+
+@st.cache_resource
+def load_embedding_model(model_name="all-MiniLM-L6-v2"):
+
+    return SentenceTransformer(model_name)
+
+
+
+
 def build_faiss_index(chunks, model_name="all-MiniLM-L6-v2", progress_callback=None):
+
     if not chunks:
         raise ValueError("No chunks to index")
 
     if progress_callback:
         progress_callback("🔹 Loading embedding model...")
 
-    model = SentenceTransformer(model_name)
+    model = load_embedding_model(model_name)
 
     if progress_callback:
         progress_callback("🔹 Creating embeddings...")
@@ -59,10 +84,12 @@ def build_faiss_index(chunks, model_name="all-MiniLM-L6-v2", progress_callback=N
     embeddings = model.encode(
         chunks,
         convert_to_numpy=True,
-        normalize_embeddings=True
+        normalize_embeddings=True,
+        batch_size=32
     )
 
     index = faiss.IndexFlatIP(embeddings.shape[1])
+
     index.add(embeddings)
 
     if progress_callback:
@@ -72,25 +99,25 @@ def build_faiss_index(chunks, model_name="all-MiniLM-L6-v2", progress_callback=N
 
 
 
-def retrieve_context(query, model, index, chunks, top_k=5, score_threshold=0.25):
+
+def retrieve_context(query, model, index, chunks, top_k=5):
+
     query_emb = model.encode(
-        [query],
+        [query.lower()],
         convert_to_numpy=True,
         normalize_embeddings=True
     )
 
     scores, indices = index.search(query_emb, top_k)
 
-    relevant_chunks = []
-    for score, idx in zip(scores[0], indices[0]):
-        if score >= score_threshold:
-            relevant_chunks.append(chunks[idx])
+    relevant_chunks = [chunks[idx] for idx in indices[0] if idx >= 0]
 
     return relevant_chunks
 
 
 
-def generate_answer(query, context, max_len=300):
+def generate_answer(query, context, max_len=150):
+
     if "generator" not in st.session_state:
         raise RuntimeError("Text generator not initialized")
 
@@ -100,25 +127,26 @@ def generate_answer(query, context, max_len=300):
     generator = st.session_state.generator
 
     prompt = f"""
-You are a document-based AI assistant.
+You are an AI assistant answering questions using provided documents.
 
-RULES:
-- Answer ONLY from the context
-- If answer is missing, say: "The document does not contain this information."
-- Do NOT use outside knowledge
+Instructions:
+- Use the context to answer the question.
+- The wording may differ but infer the meaning.
+- If the answer is clearly not present say:
+"The document does not contain this information."
 
 Context:
-{chr(10).join(context)}
+{chr(10).join(context[:3])}
 
 Question:
 {query}
 
-Answer:
+Answer clearly:
 """
 
     result = generator(
         prompt,
-        max_length=max_len,
+        max_new_tokens=max_len,
         temperature=0.0,
         do_sample=False
     )
